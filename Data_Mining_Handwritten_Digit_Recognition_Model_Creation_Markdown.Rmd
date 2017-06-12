@@ -1,0 +1,93 @@
+---
+title: "Data Mining Project"
+output: html_document
+---
+
+
+Handwritten digit recognition is implemented on MNIST dataset using convolutional neural network.
+
+
+Importing all the required libraries.
+```{r}
+library("EBImage")
+require(mxnet)
+library(caret)
+```
+
+Loading dataset
+```{r}
+digits<-read.csv("train.csv")
+set.seed(1)
+train_ind <- createDataPartition(digits$label, p= .8, list=FALSE)
+training_set<-digits[train_ind,]
+testing_set<-digits[-train_ind,]
+```
+
+Preparing training set for neural network
+```{r}
+training_set <- data.matrix(training_set)
+train_x <- t(training_set[, -1])
+train_y <- training_set[, 1]
+train_array <- train_x
+dim(train_array) <- c(28, 28, 1, ncol(train_x))
+```
+
+Constructing layers of neural network. Two convolutional and two fully connected layers are used. As an activation function is used ReLU (i.e. max(0, x)). As a library mxnet is used.
+```{r}
+data <- mx.symbol.Variable('data')
+
+conv_layer_1 <- mx.symbol.Convolution(data = data, kernel = c(3, 3), num_filter = 32)
+relu_1 <- mx.symbol.Activation(data = conv_layer_1, act_type = "relu")
+pool_1 <- mx.symbol.Pooling(data = relu_1, pool_type = "max", kernel = c(2, 2), stride = c(2, 2))
+
+conv_layer_2 <- mx.symbol.Convolution(data = pool_1, kernel = c(3, 3), num_filter = 64)
+relu_2 <- mx.symbol.Activation(data = conv_layer_2, act_type = "relu")
+pool_2 <- mx.symbol.Pooling(data=relu_2, pool_type = "max", kernel = c(2, 2), stride = c(2, 2))
+
+flatten <- mx.symbol.Flatten(data = pool_2)
+connected_1 <- mx.symbol.FullyConnected(data = flatten, num_hidden = 512)
+relu_3 <- mx.symbol.Activation(data = connected_1, act_type = "relu")
+
+connected_2 <- mx.symbol.FullyConnected(data = relu_3, num_hidden = 10)
+
+network_model <- mx.symbol.SoftmaxOutput(data = connected_2)
+```
+
+Training model with constructed layers. It is using model with layers constructed above and applies on training set. Number of iterations is taken to be 336 with 100 samples from dataset in each iteration. CPU is used as a device.
+```{r}
+mx.set.seed(1)
+devices <- mx.cpu()
+model <- mx.model.FeedForward.create(network_model,
+                                     X = train_array,
+                                     y = train_y,
+                                     ctx = devices,
+                                     num.round = 336,
+                                     array.batch.size = 100,
+                                     learning.rate = 0.01,
+                                     momentum = 0.9,
+                                     eval.metric = mx.metric.accuracy,
+                                     epoch.end.callback=mx.callback.save.checkpoint("model"))
+```
+
+Testing accuracy of constructed model on testing set
+```{r}
+test_x <- t(testing_set[, -1])
+test_array <- test_x
+dim(test_array) <- c(28, 28, 1, ncol(test_x))
+predicted <- predict(model, test_array)
+```
+
+Predicting label for some image. Image is assumed to be rgb. It then is resized to 28x28 size to match the size of dataset. After, it is changed to one channel(grayscale) image by taking mean of each term in matrix.
+```{r}
+image <- readImage("test.png")
+
+image_resized <- resize(image, w =28, h = 28)
+image_array <- as.array(image_resized)
+image_grayscale<-as.vector(round(255*(image_array[,,1] + image_array[,,2] + image_array[,,3])/3))
+names(image_grayscale)<-names(training_set[, -1])
+frame<-data.frame(as.list(image_grayscale))
+test_frame <- t(frame)
+test_frame_array <- test_frame
+dim(test_frame_array) <- c(28, 28, 1, ncol(test_frame))
+predicted <- predict(model, test_frame_array)
+```
